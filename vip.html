@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>VIP 設定</title>
+<style>
+:root { --blue:#007bff; --red:#dc3545; --gray:#6c757d; }
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 1.5rem;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  background: #f4f6f8; color: #212529; min-height: 100vh;
+}
+h1 { font-size: 1.3rem; margin: 0 0 1rem; }
+.card {
+  background: #fff; border-radius: .5rem; padding: 1.25rem;
+  box-shadow: 0 2px 12px rgba(0,0,0,.08);
+  max-width: 420px; margin: 0 auto;
+}
+.field { margin-bottom: .9rem; }
+label { display: block; font-size: .85rem; color: #555; margin-bottom: .25rem; }
+input[type="text"], input[type="password"], select {
+  width: 100%; padding: .5rem;
+  border: 1px solid #ccc; border-radius: .25rem;
+  font-size: 1rem; font-family: inherit;
+}
+.btn {
+  display: inline-block; border: 1px solid transparent;
+  padding: .5rem 1rem; font-size: 1rem; line-height: 1.4;
+  border-radius: .25rem; cursor: pointer; font-family: inherit;
+}
+.btn-primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+.btn-primary:hover { background: #0069d9; }
+.btn-secondary { background: transparent; color: var(--gray); border-color: var(--gray); }
+.btn-secondary:hover { background: var(--gray); color: #fff; }
+.actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1rem; flex-wrap: wrap; }
+.error { color: var(--red); font-size: .9rem; min-height: 1.2rem; margin-bottom: .5rem; }
+.success { color: #1e7e34; font-size: .9rem; min-height: 1.2rem; margin-bottom: .5rem; }
+.hidden { display: none !important; }
+.note { font-size: .85rem; color: #666; margin-top: .8rem; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<!-- ログイン -->
+<div class="card" id="login-card">
+  <h1>VIP ログイン</h1>
+  <div class="error" id="login-error"></div>
+  <div class="field">
+    <label>ユーザーID</label>
+    <input type="text" id="vip-id" autocomplete="off" />
+  </div>
+  <div class="field">
+    <label>パスワード</label>
+    <input type="password" id="vip-pw" autocomplete="off" />
+  </div>
+  <div class="actions">
+    <button class="btn btn-secondary" id="login-cancel">閉じる</button>
+    <button class="btn btn-primary" id="login-ok">ログイン</button>
+  </div>
+</div>
+
+<!-- 設定 -->
+<div class="card hidden" id="panel-card">
+  <h1>VIP 設定 — 次の結果を指定</h1>
+  <div class="success" id="panel-msg"></div>
+
+  <div class="field">
+    <label>次に回したときに当たる項目</label>
+    <select id="target-select">
+      <option value="">— 指定なし (ランダム) —</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label>指定の扱い</label>
+    <select id="consume-mode">
+      <option value="consume">1回使ったら解除する</option>
+      <option value="keep">解除するまで保持する</option>
+    </select>
+  </div>
+
+  <div class="actions">
+    <button class="btn btn-secondary" id="panel-logout">ログアウト</button>
+    <button class="btn btn-secondary" id="panel-close">閉じる</button>
+    <button class="btn btn-primary" id="panel-save">保存</button>
+  </div>
+
+  <div class="note">
+    保存すると、ルーレットのページに即反映されます(サーバー経由)。
+    「指定なし」を選んで保存すると、通常のランダムに戻ります。
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const $ = s => document.querySelector(s);
+  const loginCard = $("#login-card");
+  const panelCard = $("#panel-card");
+  const loginId = $("#vip-id");
+  const loginPw = $("#vip-pw");
+  const loginError = $("#login-error");
+  const loginOk = $("#login-ok");
+  const loginCancel = $("#login-cancel");
+  const targetSelect = $("#target-select");
+  const consumeMode = $("#consume-mode");
+  const panelMsg = $("#panel-msg");
+  const panelSave = $("#panel-save");
+  const panelLogout = $("#panel-logout");
+  const panelClose = $("#panel-close");
+
+  // 候補リストは index.html と同じ localStorage から読む(表示用)
+  function getWheelItems() {
+    try {
+      const d = JSON.parse(localStorage.getItem("wheel-data-v2") || "{}");
+      const raw = typeof d.namesRaw === "string" ? d.namesRaw : "";
+      const striked = Array.isArray(d.namesStriked) ? d.namesStriked : [];
+      return raw.split("\n").map(s => s.trim()).filter(s => s.length && !striked.includes(s));
+    } catch (_) {
+      return [];
+    }
+  }
+
+  async function buildTargetOptions() {
+    const items = getWheelItems();
+    const settings = await fetch("/api/vip-settings").then(r => {
+      if (!r.ok) throw new Error("unauthorized");
+      return r.json();
+    }).catch(() => null);
+
+    targetSelect.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "— 指定なし (ランダム) —";
+    targetSelect.appendChild(none);
+
+    items.forEach(name => {
+      const o = document.createElement("option");
+      o.value = name;
+      o.textContent = name;
+      targetSelect.appendChild(o);
+    });
+
+    const current = (settings && settings.target) || "";
+    targetSelect.value = items.includes(current) ? current : "";
+    consumeMode.value = (settings && settings.consume === "keep") ? "keep" : "consume";
+  }
+
+  function showLogin() {
+    loginCard.classList.remove("hidden");
+    panelCard.classList.add("hidden");
+    loginId.value = "";
+    loginPw.value = "";
+    loginError.textContent = "";
+    setTimeout(() => loginId.focus(), 50);
+  }
+  async function showPanel() {
+    loginCard.classList.add("hidden");
+    panelCard.classList.remove("hidden");
+    panelMsg.textContent = "";
+    await buildTargetOptions();
+  }
+
+  async function tryLogin() {
+    const id = loginId.value.trim();
+    const pw = loginPw.value;
+    loginError.textContent = "";
+    const r = await fetch("/api/vip-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, pw }),
+    }).catch(() => null);
+
+    if (r && r.ok) {
+      showPanel();
+    } else {
+      loginError.textContent = "IDまたはパスワードが違います";
+    }
+  }
+
+  async function logout() {
+    await fetch("/api/vip-logout", { method: "POST" }).catch(() => {});
+    showLogin();
+  }
+
+  async function saveSettings() {
+    const v = targetSelect.value;
+    const cm = consumeMode.value;
+    const r = await fetch("/api/vip-settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target: v, consume: cm }),
+    }).catch(() => null);
+    if (r && r.ok) {
+      panelMsg.textContent = v
+        ? `「${v}」に指定しました`
+        : "指定を解除しました(通常のランダム)";
+      setTimeout(() => { panelMsg.textContent = ""; }, 2500);
+    } else {
+      panelMsg.textContent = "保存に失敗しました(ログイン切れの可能性)";
+      setTimeout(() => { panelMsg.textContent = ""; }, 3000);
+    }
+  }
+
+  loginOk.addEventListener("click", tryLogin);
+  loginPw.addEventListener("keydown", e => { if (e.key === "Enter") tryLogin(); });
+  loginId.addEventListener("keydown", e => { if (e.key === "Enter") loginPw.focus(); });
+  loginCancel.addEventListener("click", () => window.close());
+
+  panelSave.addEventListener("click", saveSettings);
+  panelLogout.addEventListener("click", logout);
+  panelClose.addEventListener("click", () => window.close());
+
+  // 起動時: セッション確認
+  (async () => {
+    const s = await fetch("/api/vip-status").then(r => r.json()).catch(() => null);
+    if (s && s.authed) showPanel();
+    else showLogin();
+  })();
+
+})();
+</script>
+</body>
+</html>
