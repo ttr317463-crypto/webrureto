@@ -110,8 +110,10 @@ app.post('/api/spin', (req, res) => {
 });
 
 // ── 静的ファイル ──
-app.use(express.static(path.join(__dirname, 'public')));
-app.get('/vip', (req, res) => res.sendFile(path.join(__dirname, 'public', 'vip.html')));
+// 今のファイル配置（publicフォルダなし）に合わせる
+app.use(express.static(__dirname));
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+app.get('/vip', (req, res) => res.sendFile(path.join(__dirname, 'vip.html')));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('listening on', PORT));
